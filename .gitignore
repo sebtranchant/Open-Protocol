@@ -1,0 +1,75 @@
+# Visual Studio / .NET common ignores
+# See https://github.com/github/gitignore/blob/main/VisualStudio.gitignore for reference
+
+## Build results
+bin/
+obj/
+**/bin/
+**/obj/
+
+## Visual Studio files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.userprefs
+*.resharper*/
+_ReSharper*/
+
+## Rider
+.idea/
+*.sln.iml
+
+## NuGet
+*.nupkg
+packages/
+.nuget/packages/
+project.lock.json
+project.fragment.lock.json
+
+## Dotnet generated
+*.dotCover
+*.ncrunch*
+*.coverage
+*.coveragexml
+*.glimpse
+debug/**
+Release/**
+
+## Build outputs
+*.dll
+*.exe
+*.pdb
+*.cache
+
+## MSBuild
+Generated
+designer.cs
+*.generated.cs
+
+## VS Code
+.vscode/
+
+## Logs
+*.log
+
+## User-specific files
+*.rsuser
+*.dbmdl
+*.opendb
+
+# Ignore build artifacts and temporary files
+*.tmp
+*.temp
+~$*
+
+# Ignore publish outputs
+publish/
+
+# Ignore JetBrains Rider caches
+.idea/
+
+# Optional: ignore Visual Studio Code workspace settings
+.vscode/
+
+# End of .gitignore
