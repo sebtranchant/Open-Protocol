@@ -13,7 +13,7 @@ namespace OpenProtocol
 {
     public class OPClient
     {
-        private static readonly log4net.ILog log = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod()!.DeclaringType);
+        private static readonly log4net.ILog log = log4net.LogManager.GetLogger(typeof(OPClient));
        
         #region Fields
 
@@ -68,7 +68,7 @@ namespace OpenProtocol
 
         #endregion
 
-                # region Methodes privées
+        # region Methodes privées
 
         private void KeepAlivetimer_Elapsed(object? sender, ElapsedEventArgs e)
         {
@@ -139,10 +139,10 @@ namespace OpenProtocol
                 throw new ProtocolException(ex.Message);
             }
 
-            if (Mid != "9999") // No log on Keep Alive
-            {
+            //if (Mid != "9999") // No log on Keep Alive
+            //{
                 log.Debug("PC-->CT : " + Message);
-            }
+            //}
         }
 
         private async Task<string> ReceiveAsync()
@@ -911,7 +911,7 @@ namespace OpenProtocol
             }
         }
 
-        public void Ecoute()
+        private void Ecoute()
         {
             if (Myclient == null || _stateObj ==null) return;
 

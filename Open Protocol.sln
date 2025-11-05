@@ -1,9 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36603.0 d17.14
+VisualStudioVersion = 17.14.36603.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Open Protocol", "Open Protocol\Open Protocol.csproj", "{9725331A-DC55-4F0E-A3AC-5BE77141871A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test Open protcol", "Test Open protcol\Test Open protcol.csproj", "{4334FA76-0506-4A68-8894-9380B20C2CAB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +17,10 @@ Global
 		{9725331A-DC55-4F0E-A3AC-5BE77141871A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9725331A-DC55-4F0E-A3AC-5BE77141871A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9725331A-DC55-4F0E-A3AC-5BE77141871A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
