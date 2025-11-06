@@ -1,12 +1,10 @@
-﻿using System.Collections;
-using System.Net;
+﻿using Diziscop.AtlasCopcoContribution.Nutrunner.OpenProtocol.OpenProtocolTypes;
+using OpenProtocol.Exceptions;
+using OpenProtocol.OpenProtocolTypes;
+using System.Collections;
 using System.Net.Sockets;
 using System.Text;
 using System.Timers;
-using Diziscop.AtlasCopcoContribution.Nutrunner.OpenProtocol.OpenProtocolTypes;
-using log4net.Core;
-using OpenProtocol.Exceptions;
-using OpenProtocol.OpenProtocolTypes;
 
 
 namespace OpenProtocol
@@ -14,7 +12,7 @@ namespace OpenProtocol
     public class OPClient
     {
         private static readonly log4net.ILog log = log4net.LogManager.GetLogger(typeof(OPClient));
-       
+
         #region Fields
 
         private static ManualResetEvent CommandAck = new ManualResetEvent(false);
@@ -62,17 +60,17 @@ namespace OpenProtocol
         public ConnexionStatusEnum CurrentCxStatus { get; private set; }
         public bool AutoReconnect { get; set; }
 
-        
+
 
 
 
         #endregion
 
-        # region Methodes privées
+        #region Methodes privées
 
         private void KeepAlivetimer_Elapsed(object? sender, ElapsedEventArgs e)
         {
-            
+
             TimeOut.Start();
 #pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
             SendAsync("0020", "9999", "000", "");
@@ -91,7 +89,7 @@ namespace OpenProtocol
             //TODO add ack like SendAsync
             if (StrOUT == null) return;
             int GenericRev = 1;
-            string Message = "000800"+(int) GenericRev + "         " + SubscriptionMID.ToString().PadLeft(4, '0') +
+            string Message = "000800" + (int)GenericRev + "         " + SubscriptionMID.ToString().PadLeft(4, '0') +
                              Revision.ToString().PadLeft(3, '0') + ExtraData.Length.ToString().PadLeft(2, '0') +
                              ExtraData;
             ;
@@ -107,9 +105,9 @@ namespace OpenProtocol
                 this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
             }
         }
-        private  Task SendAsync(string length, String Mid, string Rev, String data)
-        { 
-           return SendAsync(length, Mid, Rev, false, data);
+        private Task SendAsync(string length, String Mid, string Rev, String data)
+        {
+            return SendAsync(length, Mid, Rev, false, data);
         }
         private async Task SendAsync(string length, String Mid, string Rev, bool Ack, String data)
         {
@@ -125,7 +123,7 @@ namespace OpenProtocol
                 log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
                 Message = length + Mid + Rev + '1' + "        " + data + nul;
             }
-            
+
 
             try
             {
@@ -141,7 +139,7 @@ namespace OpenProtocol
 
             //if (Mid != "9999") // No log on Keep Alive
             //{
-                log.Debug("PC-->CT : " + Message);
+            log.Debug("PC-->CT : " + Message);
             //}
         }
 
@@ -175,14 +173,14 @@ namespace OpenProtocol
             log.Debug("PC<--CT : " + reponse);
             return reponse;
         }
-       
+
         private void OnDataReceived(IAsyncResult asyn)
         {
             log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
             _stateObj = (StateObject?)asyn.AsyncState;
             if (_stateObj != null)
             {
-                if (_stateObj.workSocket != null) 
+                if (_stateObj.workSocket != null)
                 {
                     try
                     {
@@ -192,7 +190,7 @@ namespace OpenProtocol
                     {
                         log.Error("Erreur OnDataReceived() EndReceive " + ex.Message);
                         this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
-                        
+
                     }
                 }
                 else
@@ -222,12 +220,12 @@ namespace OpenProtocol
                 {
                     _stateObj.PartialMessage = false;
 
-                  //  log.Info("Message byte count :" + (_stateObj.BytesMessage.Count) + "/" + _stateObj.FullMsgLen + " Partial message : " + _stateObj.PartialMessage);
+                    //  log.Info("Message byte count :" + (_stateObj.BytesMessage.Count) + "/" + _stateObj.FullMsgLen + " Partial message : " + _stateObj.PartialMessage);
                     this.DecodeMessage(_stateObj.BytesMessage);
                     _stateObj.BytesMessage.Clear();
                 }
                 else if
-                    ( _stateObj.FullMsgLen < _stateObj.BytesMessage.Count)
+                    (_stateObj.FullMsgLen < _stateObj.BytesMessage.Count)
                 {
                     _stateObj.PartialMessage = false;
 
@@ -259,13 +257,13 @@ namespace OpenProtocol
                 int index = 0;
                 try
                 {
-                   
+
 
                     if (samplecount > 0) // données présente aprés la trame ASCII
                     {
                         byte[] Tracebytes = new byte[samplecount * 2];
-                       
-                        var test = ByteToDecode.ToArray();
+
+                       // var test = ByteToDecode.ToArray();
                         Buffer.BlockCopy(ByteToDecode.ToArray(), opmessage.Length + 1, Tracebytes, 0, samplecount * 2);
                         Data = Tracebytes.GroupBy(x => index++ / 2)
                           .Select(x => BitConverter.ToInt16(x.Reverse().ToArray(), 0)).ToList();
@@ -275,7 +273,7 @@ namespace OpenProtocol
                 }
                 catch (ArgumentOutOfRangeException ex)
                 {
-                            log.Error("Erreur OnDataReceived() Blockcopy " + IpAddress + "/buffer :" + _stateObj?.buffer + "/EndIndex :" + _stateObj?.EndIndex.ToString() + "/" + ex.ToString());
+                    log.Error("Erreur OnDataReceived() Blockcopy " + IpAddress + "/buffer :" + _stateObj?.buffer + "/EndIndex :" + _stateObj?.EndIndex.ToString() + "/" + ex.ToString());
                     _stateObj?.BytesMessage.Clear();
                     this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
                 }
@@ -289,193 +287,153 @@ namespace OpenProtocol
             _stateObj?.BytesMessage.Clear();
             this.Compute(opmessage, Data);
         }
-        private void Compute(string Message, List<short> Data)
+        private void Compute(string message, List<short> data)
         {
-            log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
+            log4net.ThreadContext.Properties["myContext"] = IpAddress;
             KeepAlivetimer.Stop();
-            if (Message.Length > 8)
+            
+            if (string.IsNullOrEmpty(message) || message.Length <= 8)
             {
-                string MessageId = Message.Substring(4, 4);
-
-                if (MessageId != "9999") log.Debug("PC<--CT : " + Message);
-                Acknowledge(MessageId);
-                // Log si pas keep alive
-
-                switch (MessageId)
-                {
-                    case "9999":
-                        KeepAlivetimer.Stop();
-                        TimeOut.Stop();
-                        break;
-
-                    case "0061":
-                        var _currentResult = new ResultEvtArgs(Message);
-                        if (_currentResult.TightId != _lastTightId)
-                        {
-                            _lastTightId = _currentResult.TightId;
-                            this.NewResultEvt?.Invoke(this, _currentResult);
-                        }
-
-                        break;
-
-                    case "0015":
-                          this.NewResultPmtId?.Invoke(this, new ResultParameterSetId(Message));
-                        break;
-
-                    case "0035":
-                        this.NewJobEvt?.Invoke(this, new JobEvtArgs(Message));
-                        break;
-
-                    case "0101":
-                        OnMultipleSpindleResultReceive?.Invoke(this, new MutipleSpindlesResultsEvtArgs(Message));
-                        break;
-
-                    case "0106":
-                        switch (ControlerInf!.SysSubType)
-                        {
-                            case SystemSubTypeEnum.NotSet:
-                                OnStationResult?.Invoke(this, new LastTighteningResultStationDataEvtArg(Message));
-                                break;
-                            case SystemSubTypeEnum.Normal:
-                                OnStationResult?.Invoke(this, new LastTighteningResultStationDataEvtArg(Message));
-                                break;
-                            case SystemSubTypeEnum.Press:
-                                OnStationResult?.Invoke(this, new LastPressResultStationDataEvtArg(Message));
-                                break;
-                            default:
-                                break;
-                        }
-
-                        break;
-
-                    case "0107":
-                        switch (ControlerInf!.SysSubType)
-                        {
-                            case SystemSubTypeEnum.Normal:
-                                OnBoltResult?.Invoke(this, new LastTighteningResultBoltdataEvtArgs(Message));
-                                break;
-                            case SystemSubTypeEnum.Press:
-                                OnBoltResult?.Invoke(this, new LastPressResultFittingdataEvtArgs(Message));
-                                break;
-                            default:
-                                break;
-                        }
-
-                        break;
-
-                    case "0900":
-                        OnLastCurveReveived?.Invoke(this, new LastTraceResultEvtArgs(Message, Data));
-                        break;
-
-                    case "0901":
-                        OnTracePlotReceived?.Invoke(this, new TracePlotEvtArgs(Message));
-                        break;
-
-                    case "0211":
-                        RelayStatusChanged?.Invoke(this, new RelayStatusEvtArgs(Message));
-                        break;
-
-                    case "0242":
-                        UserDataReceived?.Invoke(this, new UserDataEvtArgs(Message));
-                        break;
-
-                    case "0004":
-                        log.Info("PC-->PF : Commande refusée : " + Message.Substring(20, 6));
-                        this.CommandResult?.Invoke(this,
-                            new CmdResultEvtArgs(CmdResult.Error, short.Parse(Message.Substring(20, 6)), 0));
-                        CommandAck.Set();
-                        //this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
-                        break;
-                    case "0005":
-                        log.Info("PC-->PF : Commande acceptée : " + Message.Substring(20, 4));
-                        CommandAck.Set();
-                        this.CommandResult?.Invoke(this,
-                            new CmdResultEvtArgs(CmdResult.Success, short.Parse(Message.Substring(20, 4)), 0));
-                        break;
-                    case "0002":
-                        log.Info("PC-->PF : Commande acceptée : " + Message.Substring(20, 4));
-                        CommandAck.Set();
-                        this.CommandResult?.Invoke(this,
-                            new CmdResultEvtArgs(CmdResult.Success, short.Parse(Message.Substring(20, 4)), 0));
-                        break;
-                    default:
-                        break;
-                }
-
-                if (!ClosePending)
-                {
-                    KeepAlivetimer.Start();
-                    this.Ecoute();
-                }
+                log.Debug($"Message malformée reçue : {message}");
+                UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
+                return;
             }
-            else
+
+            var messageId = message[4..8];
+            
+            if (messageId != "9999") 
             {
-                log.Debug("Poorly formed message received : " + Message);
-                this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
+                log.Debug($"PC<--CT : {message}");
             }
-        }
+    
+            _ = AcknowledgeAsync(messageId);
 
-        private void Acknowledge(string MessageId)
+            try
+            {
+                HandleMessage(messageId, message, data);
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Erreur lors du traitement du message {messageId}: {ex.Message}");
+                UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
+                return;
+            }
+
+    if (!ClosePending)
+    {
+        KeepAlivetimer.Start();
+        Ecoute();
+    }
+}
+
+private void HandleMessage(string messageId, string message, List<short> data)
+{
+    // Dictionary définissant les actions par messageId
+    var messageHandlers = new Dictionary<string, Action<string, List<short>>>
+    {
+        ["9999"] = (_,_) => 
         {
-            // Ack pour les infos Job et Résultats
-
-            switch (MessageId)
+            KeepAlivetimer.Stop();
+            TimeOut.Stop();
+        },
+        ["0061"] = (msg,_) =>
+        {
+            var currentResult = new ResultEvtArgs(msg);
+            if (currentResult.TightId != _lastTightId)
             {
-                case "0061":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0062", "000", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0035":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0036", "000", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0217":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0218", "000", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0101":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0102", "000", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0106":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0021", "0108", "000", "1");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0107":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0021", "0108", "000", "1");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0900":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0024", "0005", "001", "0900");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0901":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0024", "0005", "001", "0901");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0242":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0243", "001", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0212":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0213", "001", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
-                case "0015":
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    SendAsync("0020", "0016", "001", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                    break;
+                _lastTightId = currentResult.TightId;
+                NewResultEvt?.Invoke(this, currentResult);
+            }
+        },
+        ["0015"] = (msg,_) => NewResultPmtId?.Invoke(this, new ResultParameterSetId(msg)),
+        ["0035"] = (msg,_) => NewJobEvt?.Invoke(this, new JobEvtArgs(msg)),
+        ["0101"] = (msg,_) => OnMultipleSpindleResultReceive?.Invoke(this, new MutipleSpindlesResultsEvtArgs(msg)),
+        ["0106"] = HandleStationResult,
+        ["0107"] = HandleBoltResult,
+        ["0900"] = (msg,d) => OnLastCurveReveived?.Invoke(this, new LastTraceResultEvtArgs(msg, d)),
+        ["0901"] = (msg,_) => OnTracePlotReceived?.Invoke(this, new TracePlotEvtArgs(msg)),
+        ["0211"] = (msg,_) => RelayStatusChanged?.Invoke(this, new RelayStatusEvtArgs(msg)),
+        ["0242"] = (msg,_) => UserDataReceived?.Invoke(this, new UserDataEvtArgs(msg)),
+        ["0004"] = HandleCommandRefused,
+        ["0005"] = HandleCommandAccepted,
+        ["0002"] = HandleCommandAccepted
+    };
+
+    if (messageHandlers.TryGetValue(messageId, out var handler))
+    {
+        handler(message, data);
+    }
+}
+
+private void HandleStationResult(string message, List<short> _)
+{
+    if (ControlerInf?.SysSubType is null) return;
+    
+    switch (ControlerInf.SysSubType)
+    {
+        case SystemSubTypeEnum.NotSet:
+        case SystemSubTypeEnum.Normal:
+            OnStationResult?.Invoke(this, new LastTighteningResultStationDataEvtArg(message));
+            break;
+        case SystemSubTypeEnum.Press:
+            OnStationResult?.Invoke(this, new LastPressResultStationDataEvtArg(message));
+            break;
+    }
+}
+
+private void HandleBoltResult(string message, List<short> _)
+{
+    if (ControlerInf?.SysSubType is null) return;
+
+    switch (ControlerInf.SysSubType)
+    {
+        case SystemSubTypeEnum.Normal:
+            OnBoltResult?.Invoke(this, new LastTighteningResultBoltdataEvtArgs(message));
+            break;
+        case SystemSubTypeEnum.Press:
+            OnBoltResult?.Invoke(this, new LastPressResultFittingdataEvtArgs(message));
+            break;
+    }
+}
+
+private void HandleCommandRefused(string message, List<short> _)
+{
+    var cmdId = message[20..26];
+    log.Info($"PC-->PF : Commande refusée : {cmdId}");
+    CommandResult?.Invoke(this, new CmdResultEvtArgs(CmdResult.Error, short.Parse(cmdId), 0));
+    CommandAck.Set();
+}
+
+private void HandleCommandAccepted(string message, List<short> _)
+{
+    var cmdId = message[20..24];
+    log.Info($"PC-->PF : Commande acceptée : {cmdId}");
+    CommandAck.Set();
+    CommandResult?.Invoke(this, new CmdResultEvtArgs(CmdResult.Success, short.Parse(cmdId), 0));
+}
+        private async Task AcknowledgeAsync(string MessageId)
+        {
+            // Map of message IDs to their corresponding acknowledgment parameters
+            var ackMap = new Dictionary<string, (string length, string mid, string rev, string data)>
+            {
+                ["0061"] = ("0020", "0062", "000", ""),
+                ["0035"] = ("0020", "0036", "000", ""),
+                ["0217"] = ("0020", "0218", "000", ""),
+                ["0101"] = ("0020", "0102", "000", ""),
+                ["0106"] = ("0021", "0108", "000", "1"),
+                ["0107"] = ("0021", "0108", "000", "1"),
+                ["0900"] = ("0024", "0005", "001", "0900"),
+                ["0901"] = ("0024", "0005", "001", "0901"),
+                ["0242"] = ("0020", "0243", "001", ""),
+                ["0212"] = ("0020", "0213", "001", ""),
+                ["0015"] = ("0020", "0016", "001", "")
+            };
+
+            // If message ID exists in map, send acknowledgment
+            if (ackMap.TryGetValue(MessageId, out var ackParams))
+            {
+                await SendAsync(ackParams.length, ackParams.mid, ackParams.rev, ackParams.data)
+                    .ConfigureAwait(false);
             }
         }
 
@@ -676,7 +634,7 @@ namespace OpenProtocol
         public async Task ConnectAsync()
         {
             log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
-           
+
             log.Info("************** DEBUT CONNEXION avec " + IpAddress + " **********************");
             LastUserMessage = "";
             UpdateConnectionStatus(ConnexionStatusEnum.pending);
@@ -729,7 +687,7 @@ namespace OpenProtocol
             #region Open Protocol connexion
 
             log.Debug("Demande de Communication OP avec " + IpAddress);
-            
+
             await SendAsync("0020", "0001", "003", "");
             string data = await ReceiveAsync();
             if (data.Substring(4, 4) == "0002")
@@ -793,7 +751,7 @@ namespace OpenProtocol
             #region Description program
 
             ProgDescList = GetDescProgList();
-            
+
             #endregion
 
             #region Souscription
@@ -807,7 +765,7 @@ namespace OpenProtocol
                     {
                         case Subscriptions.ConfigurationEquipment:
                             await ConfigurationEquipmentSubscribe();
-                            break;                           
+                            break;
                         case Subscriptions.LasTightening:
                             await LastResultSubscribe();
                             break;
@@ -834,7 +792,7 @@ namespace OpenProtocol
                     }
 
                     CommandAck.WaitOne();
-                    
+
                     CommandAck.Reset();
                 }
             }
@@ -850,7 +808,7 @@ namespace OpenProtocol
         public void SendIdentifier(string Data)
         {
             if (Myclient == null) return;
-            
+
             if (Myclient.Connected == true)
             {
                 log.Info("PC-->CT : Envoi Identifiant :" + Data);
@@ -913,7 +871,7 @@ namespace OpenProtocol
 
         private void Ecoute()
         {
-            if (Myclient == null || _stateObj ==null) return;
+            if (Myclient == null || _stateObj == null) return;
 
             try
             {
@@ -1007,7 +965,7 @@ namespace OpenProtocol
 
             string IDlist;
             List<ProgDescription> list = new List<ProgDescription>();
-           await SendAsync("0020", "0010", "000", "");
+            await SendAsync("0020", "0010", "000", "");
             string reponse = await ReceiveAsync();
             if (reponse.Substring(4, 4) == "0011")
             {
