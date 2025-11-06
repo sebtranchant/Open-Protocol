@@ -287,6 +287,7 @@ namespace OpenProtocol
             _stateObj?.BytesMessage.Clear();
             this.Compute(opmessage, Data);
         }
+
         private void Compute(string message, List<short> data)
         {
             log4net.ThreadContext.Properties["myContext"] = IpAddress;
@@ -326,91 +327,92 @@ namespace OpenProtocol
     }
 }
 
-private void HandleMessage(string messageId, string message, List<short> data)
-{
-    // Dictionary définissant les actions par messageId
-    var messageHandlers = new Dictionary<string, Action<string, List<short>>>
-    {
-        ["9999"] = (_,_) => 
+        private void HandleMessage(string messageId, string message, List<short> data)
         {
-            KeepAlivetimer.Stop();
-            TimeOut.Stop();
-        },
-        ["0061"] = (msg,_) =>
-        {
-            var currentResult = new ResultEvtArgs(msg);
-            if (currentResult.TightId != _lastTightId)
+             // Dictionary définissant les actions par messageId
+            var messageHandlers = new Dictionary<string, Action<string, List<short>>>
             {
-                _lastTightId = currentResult.TightId;
-                NewResultEvt?.Invoke(this, currentResult);
+                ["9999"] = (_,_) => 
+                {
+                    KeepAlivetimer.Stop();
+                    TimeOut.Stop();
+                },
+                ["0061"] = (msg,_) =>
+                {
+                    var currentResult = new ResultEvtArgs(msg);
+                    if (currentResult.TightId != _lastTightId)
+                    {
+                        _lastTightId = currentResult.TightId;
+                        NewResultEvt?.Invoke(this, currentResult);
+                    }
+                },
+                ["0015"] = (msg,_) => NewResultPmtId?.Invoke(this, new ResultParameterSetId(msg)),
+                ["0035"] = (msg,_) => NewJobEvt?.Invoke(this, new JobEvtArgs(msg)),
+                ["0101"] = (msg,_) => OnMultipleSpindleResultReceive?.Invoke(this, new MutipleSpindlesResultsEvtArgs(msg)),
+                ["0106"] = HandleStationResult,
+                ["0107"] = HandleBoltResult,
+                ["0900"] = (msg,d) => OnLastCurveReveived?.Invoke(this, new LastTraceResultEvtArgs(msg, d)),
+                ["0901"] = (msg,_) => OnTracePlotReceived?.Invoke(this, new TracePlotEvtArgs(msg)),
+                ["0211"] = (msg,_) => RelayStatusChanged?.Invoke(this, new RelayStatusEvtArgs(msg)),
+                ["0242"] = (msg,_) => UserDataReceived?.Invoke(this, new UserDataEvtArgs(msg)),
+                ["0004"] = HandleCommandRefused,
+                ["0005"] = HandleCommandAccepted,
+                ["0002"] = HandleCommandAccepted
+            };
+
+            if (messageHandlers.TryGetValue(messageId, out var handler))
+            {
+                handler(message, data);
             }
-        },
-        ["0015"] = (msg,_) => NewResultPmtId?.Invoke(this, new ResultParameterSetId(msg)),
-        ["0035"] = (msg,_) => NewJobEvt?.Invoke(this, new JobEvtArgs(msg)),
-        ["0101"] = (msg,_) => OnMultipleSpindleResultReceive?.Invoke(this, new MutipleSpindlesResultsEvtArgs(msg)),
-        ["0106"] = HandleStationResult,
-        ["0107"] = HandleBoltResult,
-        ["0900"] = (msg,d) => OnLastCurveReveived?.Invoke(this, new LastTraceResultEvtArgs(msg, d)),
-        ["0901"] = (msg,_) => OnTracePlotReceived?.Invoke(this, new TracePlotEvtArgs(msg)),
-        ["0211"] = (msg,_) => RelayStatusChanged?.Invoke(this, new RelayStatusEvtArgs(msg)),
-        ["0242"] = (msg,_) => UserDataReceived?.Invoke(this, new UserDataEvtArgs(msg)),
-        ["0004"] = HandleCommandRefused,
-        ["0005"] = HandleCommandAccepted,
-        ["0002"] = HandleCommandAccepted
-    };
+        }
 
-    if (messageHandlers.TryGetValue(messageId, out var handler))
-    {
-        handler(message, data);
-    }
-}
-
-private void HandleStationResult(string message, List<short> _)
-{
-    if (ControlerInf?.SysSubType is null) return;
+        private void HandleStationResult(string message, List<short> _)
+        {
+            if (ControlerInf?.SysSubType is null) return;
     
-    switch (ControlerInf.SysSubType)
-    {
-        case SystemSubTypeEnum.NotSet:
-        case SystemSubTypeEnum.Normal:
-            OnStationResult?.Invoke(this, new LastTighteningResultStationDataEvtArg(message));
-            break;
-        case SystemSubTypeEnum.Press:
-            OnStationResult?.Invoke(this, new LastPressResultStationDataEvtArg(message));
-            break;
-    }
-}
+            switch (ControlerInf.SysSubType)
+            {
+                case SystemSubTypeEnum.NotSet:
+                case SystemSubTypeEnum.Normal:
+                    OnStationResult?.Invoke(this, new LastTighteningResultStationDataEvtArg(message));
+                    break;
+                case SystemSubTypeEnum.Press:
+                    OnStationResult?.Invoke(this, new LastPressResultStationDataEvtArg(message));
+                    break;
+            }
+        }
 
-private void HandleBoltResult(string message, List<short> _)
-{
-    if (ControlerInf?.SysSubType is null) return;
+        private void HandleBoltResult(string message, List<short> _)
+        {
+            if (ControlerInf?.SysSubType is null) return;
 
-    switch (ControlerInf.SysSubType)
-    {
-        case SystemSubTypeEnum.Normal:
-            OnBoltResult?.Invoke(this, new LastTighteningResultBoltdataEvtArgs(message));
-            break;
-        case SystemSubTypeEnum.Press:
-            OnBoltResult?.Invoke(this, new LastPressResultFittingdataEvtArgs(message));
-            break;
-    }
-}
+            switch (ControlerInf.SysSubType)
+            {
+                case SystemSubTypeEnum.Normal:
+                    OnBoltResult?.Invoke(this, new LastTighteningResultBoltdataEvtArgs(message));
+                    break;
+                case SystemSubTypeEnum.Press:
+                    OnBoltResult?.Invoke(this, new LastPressResultFittingdataEvtArgs(message));
+                    break;
+            }
+        }
 
-private void HandleCommandRefused(string message, List<short> _)
-{
-    var cmdId = message[20..26];
-    log.Info($"PC-->PF : Commande refusée : {cmdId}");
-    CommandResult?.Invoke(this, new CmdResultEvtArgs(CmdResult.Error, short.Parse(cmdId), 0));
-    CommandAck.Set();
-}
+        private void HandleCommandRefused(string message, List<short> _)
+        {
+            var cmdId = message[20..26];
+            log.Info($"PC-->PF : Commande refusée : {cmdId}");
+            CommandResult?.Invoke(this, new CmdResultEvtArgs(CmdResult.Error, short.Parse(cmdId), 0));
+            CommandAck.Set();
+        }
 
-private void HandleCommandAccepted(string message, List<short> _)
-{
-    var cmdId = message[20..24];
-    log.Info($"PC-->PF : Commande acceptée : {cmdId}");
-    CommandAck.Set();
-    CommandResult?.Invoke(this, new CmdResultEvtArgs(CmdResult.Success, short.Parse(cmdId), 0));
-}
+        private void HandleCommandAccepted(string message, List<short> _)
+        {
+            var cmdId = message[20..24];
+            log.Info($"PC-->PF : Commande acceptée : {cmdId}");
+            CommandAck.Set();
+            CommandResult?.Invoke(this, new CmdResultEvtArgs(CmdResult.Success, short.Parse(cmdId), 0));
+        }
+
         private async Task AcknowledgeAsync(string MessageId)
         {
             // Map of message IDs to their corresponding acknowledgment parameters
