@@ -92,7 +92,7 @@ namespace OpenProtocol
             string Message = "000800" + (int)GenericRev + "         " + SubscriptionMID.ToString().PadLeft(4, '0') +
                              Revision.ToString().PadLeft(3, '0') + ExtraData.Length.ToString().PadLeft(2, '0') +
                              ExtraData;
-            
+
             try
             {
                 Message = (Message.Length + 4).ToString().PadLeft(4, '0') + Message + nul;
@@ -112,7 +112,7 @@ namespace OpenProtocol
             string Message = "";
             log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
             Message = length + Mid + Rev + "         " + data + nul;
-           
+
             try
             {
                 log.Debug("PC-->CT : " + Message);
@@ -247,7 +247,7 @@ namespace OpenProtocol
                     {
                         byte[] Tracebytes = new byte[samplecount * 2];
 
-                       // var test = ByteToDecode.ToArray();
+                        // var test = ByteToDecode.ToArray();
                         Buffer.BlockCopy(ByteToDecode.ToArray(), opmessage.Length + 1, Tracebytes, 0, samplecount * 2);
                         Data = Tracebytes.GroupBy(x => index++ / 2)
                           .Select(x => BitConverter.ToInt16(x.Reverse().ToArray(), 0)).ToList();
@@ -276,7 +276,7 @@ namespace OpenProtocol
         {
             log4net.ThreadContext.Properties["myContext"] = IpAddress;
             KeepAlivetimer.Stop();
-            
+
             if (string.IsNullOrEmpty(message) || message.Length <= 8)
             {
                 log.Debug($"Message malformée reçue : {message}");
@@ -285,12 +285,12 @@ namespace OpenProtocol
             }
 
             var messageId = message[4..8];
-            
-            if (messageId != "9999") 
+
+            if (messageId != "9999")
             {
                 log.Debug($"PC<--CT : {message}");
             }
-    
+
             _ = AcknowledgeAsync(messageId);
 
             try
@@ -304,24 +304,24 @@ namespace OpenProtocol
                 return;
             }
 
-    if (!ClosePending)
-    {
-        KeepAlivetimer.Start();
-        Ecoute();
-    }
-}
+            if (!ClosePending)
+            {
+                KeepAlivetimer.Start();
+                Ecoute();
+            }
+        }
 
         private void HandleMessage(string messageId, string message, List<short> data)
         {
-             // Dictionary définissant les actions par messageId
+            // Dictionary définissant les actions par messageId
             var messageHandlers = new Dictionary<string, Action<string, List<short>>>
             {
-                ["9999"] = (_,_) => 
+                ["9999"] = (_, _) =>
                 {
                     KeepAlivetimer.Stop();
                     TimeOut.Stop();
                 },
-                ["0061"] = (msg,_) =>
+                ["0061"] = (msg, _) =>
                 {
                     var currentResult = new ResultEvtArgs(msg);
                     if (currentResult.TightId != _lastTightId)
@@ -330,15 +330,15 @@ namespace OpenProtocol
                         NewResultEvt?.Invoke(this, currentResult);
                     }
                 },
-                ["0015"] = (msg,_) => NewResultPmtId?.Invoke(this, new ResultParameterSetId(msg)),
-                ["0035"] = (msg,_) => NewJobEvt?.Invoke(this, new JobEvtArgs(msg)),
-                ["0101"] = (msg,_) => OnMultipleSpindleResultReceive?.Invoke(this, new MutipleSpindlesResultsEvtArgs(msg)),
+                ["0015"] = (msg, _) => NewResultPmtId?.Invoke(this, new ResultParameterSetId(msg)),
+                ["0035"] = (msg, _) => NewJobEvt?.Invoke(this, new JobEvtArgs(msg)),
+                ["0101"] = (msg, _) => OnMultipleSpindleResultReceive?.Invoke(this, new MutipleSpindlesResultsEvtArgs(msg)),
                 ["0106"] = HandleStationResult,
                 ["0107"] = HandleBoltResult,
-                ["0900"] = (msg,d) => OnLastCurveReveived?.Invoke(this, new LastTraceResultEvtArgs(msg, d)),
-                ["0901"] = (msg,_) => OnTracePlotReceived?.Invoke(this, new TracePlotEvtArgs(msg)),
-                ["0211"] = (msg,_) => RelayStatusChanged?.Invoke(this, new RelayStatusEvtArgs(msg)),
-                ["0242"] = (msg,_) => UserDataReceived?.Invoke(this, new UserDataEvtArgs(msg)),
+                ["0900"] = (msg, d) => OnLastCurveReveived?.Invoke(this, new LastTraceResultEvtArgs(msg, d)),
+                ["0901"] = (msg, _) => OnTracePlotReceived?.Invoke(this, new TracePlotEvtArgs(msg)),
+                ["0211"] = (msg, _) => RelayStatusChanged?.Invoke(this, new RelayStatusEvtArgs(msg)),
+                ["0242"] = (msg, _) => UserDataReceived?.Invoke(this, new UserDataEvtArgs(msg)),
                 ["0004"] = HandleCommandRefused,
                 ["0005"] = HandleCommandAccepted,
                 ["0002"] = HandleCommandAccepted
@@ -353,7 +353,7 @@ namespace OpenProtocol
         private void HandleStationResult(string message, List<short> _)
         {
             if (ControlerInf?.SysSubType is null) return;
-    
+
             switch (ControlerInf.SysSubType)
             {
                 case SystemSubTypeEnum.NotSet:
@@ -800,29 +800,29 @@ namespace OpenProtocol
             log.Info("************** FIN DE CONNEXION avec " + IpAddress + " **********************");
         }
 
-        public void SendIdentifier(string Data)
+        public async void SendIdentifier(string Data)
         {
             if (Myclient == null) return;
 
             if (Myclient.Connected == true)
             {
                 log.Info("PC-->CT : Envoi Identifiant :" + Data);
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                SendAsync((20 + Data.Length).ToString().PadLeft(4, '0'), "0150", "000", Data);
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
+
+                await SendAsync((20 + Data.Length).ToString().PadLeft(4, '0'), "0150", "000", Data);
+
             }
         }
 
-        public void SendIdentifierPM(string Data)
+        public async void SendIdentifierPM(string Data)
         {
             if (Myclient == null) return;
 
-            if (Myclient.Connected == true)
+            if (Myclient.Connected)
             {
                 log.Info("PC-->CT : Envoi Identifiant :" + Data);
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-                SendAsync((20 + Data.Length).ToString().PadLeft(4, '0'), "0050", "000", Data);
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
+
+                await SendAsync((20 + Data.Length).ToString().PadLeft(4, '0'), "0050", "000", Data);
+
             }
         }
 
