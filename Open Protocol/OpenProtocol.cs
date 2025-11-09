@@ -15,20 +15,20 @@ namespace OpenProtocol
 
         #region Fields
 
-        private static ManualResetEvent CommandAck = new ManualResetEvent(false);
+        private static ManualResetEvent CommandAck = new(false);
         private readonly int _port;
         private bool ClosePending = false;
         private ToolInformations? _ToolInformations;
         private TcpClient? Myclient = null;
         private StreamReader? StrIN = null;
         private StreamWriter? StrOUT = null;
-        private readonly List<Subscriptions> _Subscriptions = new();
+        private readonly List<Subscriptions> _Subscriptions = [];
         private readonly System.Timers.Timer KeepAlivetimer = new System.Timers.Timer(8000);
         private readonly System.Timers.Timer TimeOut = new System.Timers.Timer(4000); //  Reception Time out before disconnection
         private readonly System.Timers.Timer ConnectionWatchDog = new System.Timers.Timer(5000);
         private const char nul = (char)00;
         private StateObject? _stateObj;
-        private int _lastTightId = 0;
+        private int _lastTightId;
         private string LastUserMessage = "";
         private Marques _marque;
         #endregion
@@ -68,13 +68,13 @@ namespace OpenProtocol
 
         #region Methodes privées
 
-        private void KeepAlivetimer_Elapsed(object? sender, ElapsedEventArgs e)
+        private async void KeepAlivetimer_Elapsed(object? sender, ElapsedEventArgs e)
         {
 
             TimeOut.Start();
-#pragma warning disable CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
-            SendAsync("0020", "9999", "000", "");
-#pragma warning restore CS4014 // Dans la mesure où cet appel n'est pas attendu, l'exécution de la méthode actuelle continue avant la fin de l'appel. Envisagez d'appliquer l'opérateur 'await' au résultat de l'appel.
+
+            await SendAsync("0020", "9999", "000", "");
+
         }
 
         private void TimeOut_Elapsed(object? sender, ElapsedEventArgs e)
@@ -92,7 +92,7 @@ namespace OpenProtocol
             string Message = "000800" + (int)GenericRev + "         " + SubscriptionMID.ToString().PadLeft(4, '0') +
                              Revision.ToString().PadLeft(3, '0') + ExtraData.Length.ToString().PadLeft(2, '0') +
                              ExtraData;
-            ;
+            
             try
             {
                 Message = (Message.Length + 4).ToString().PadLeft(4, '0') + Message + nul;
@@ -105,28 +105,17 @@ namespace OpenProtocol
                 this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
             }
         }
-        private Task SendAsync(string length, String Mid, string Rev, String data)
-        {
-            return SendAsync(length, Mid, Rev, false, data);
-        }
-        private async Task SendAsync(string length, String Mid, string Rev, bool Ack, String data)
+
+        private async Task SendAsync(string length, String Mid, string Rev, String data)
         {
             if (StrOUT == null) return;
             string Message = "";
-            if (Ack)
-            {
-                log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
-                Message = length + Mid + Rev + "         " + data + nul;
-            }
-            else
-            {
-                log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
-                Message = length + Mid + Rev + '1' + "        " + data + nul;
-            }
-
-
+            log4net.ThreadContext.Properties["myContext"] = this.IpAddress;
+            Message = length + Mid + Rev + "         " + data + nul;
+           
             try
             {
+                log.Debug("PC-->CT : " + Message);
                 await StrOUT.WriteAsync(Message);
             }
             catch (Exception ex)
@@ -136,11 +125,6 @@ namespace OpenProtocol
                 this.UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
                 throw new ProtocolException(ex.Message);
             }
-
-            //if (Mid != "9999") // No log on Keep Alive
-            //{
-            log.Debug("PC-->CT : " + Message);
-            //}
         }
 
         private async Task<string> ReceiveAsync()
@@ -589,6 +573,25 @@ namespace OpenProtocol
             }
         }
 
+        private void Ecoute()
+        {
+            if (Myclient == null || _stateObj == null) return;
+
+            try
+            {
+                // Begin receiving the data from the remote device if no close connexion pending.  
+                if (_stateObj.workSocket != null)
+                {
+                    _stateObj.workSocket.BeginReceive(_stateObj.buffer, 0, StateObject.BufferSize, SocketFlags.None, new AsyncCallback(OnDataReceived), _stateObj);
+                }
+            }
+            catch (Exception ex)
+            {
+                KeepAlivetimer.Stop();
+                log.Info("Ecoute()" + IpAddress + "  " + ex.Message);
+            }
+        }
+
         #endregion
 
         #region Methodes publiques
@@ -696,16 +699,6 @@ namespace OpenProtocol
             {
                 ControlerInf = new ControllerInformation(data);
 
-                /*if (ControlerInf.SupplierCode == "ACT")
-                {
-                    log.Debug("Demande de Communication OP aceptée avec " + IpAddress);
-                }
-                else
-                {
-                    log.Debug("Demande de Communication OP refusée avec " + IpAddress + " Suplier Code Error");
-                    UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
-                    return;
-                }*/
             }
             else
             {
@@ -759,7 +752,8 @@ namespace OpenProtocol
             #region Souscription
 
             this.Ecoute();
-            if (!(_Subscriptions is null))
+
+            if (_Subscriptions.Any())
             {
                 foreach (var Subscription in _Subscriptions)
                 {
@@ -803,7 +797,6 @@ namespace OpenProtocol
 
             this.Activation_KeepAlive();
             UpdateConnectionStatus(ConnexionStatusEnum.Connected);
-
             log.Info("************** FIN DE CONNEXION avec " + IpAddress + " **********************");
         }
 
@@ -868,25 +861,6 @@ namespace OpenProtocol
                 log.Info("PC-->PF : *************** FIN DE COMUNICATION *************");
                 UpdateConnectionStatus(ConnexionStatusEnum.Disconnected);
                 ClosePending = false;
-            }
-        }
-
-        private void Ecoute()
-        {
-            if (Myclient == null || _stateObj == null) return;
-
-            try
-            {
-                // Begin receiving the data from the remote device if no close connexion pending.  
-                if (_stateObj.workSocket != null)
-                {
-                    _stateObj.workSocket.BeginReceive(_stateObj.buffer, 0, StateObject.BufferSize, SocketFlags.None, new AsyncCallback(OnDataReceived), _stateObj);
-                }
-            }
-            catch (Exception ex)
-            {
-                KeepAlivetimer.Stop();
-                log.Info("Ecoute()" + IpAddress + "  " + ex.Message);
             }
         }
 
@@ -961,6 +935,7 @@ namespace OpenProtocol
 
             return Jobname;
         }
+
         public async Task<List<ProgDescription>> GetDescProgList()
         {
             log.Info("PC-->PF : GetDescProg()");
@@ -1016,7 +991,6 @@ namespace OpenProtocol
 
             return PsetNamedata;
         }
-
 
         public async Task<int> GetPsetinJob(int Jobnumber)
         {
