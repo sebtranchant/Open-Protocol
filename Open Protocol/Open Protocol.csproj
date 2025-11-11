@@ -15,4 +15,7 @@
     <Folder Include="Configuration\" />
   </ItemGroup>
 
+<ItemGroup>
+  <Compile Remove="OldStuff\**\*.cs" />
+</ItemGroup>
 </Project>

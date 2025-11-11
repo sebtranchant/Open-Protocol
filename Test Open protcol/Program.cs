@@ -1,47 +1,41 @@
 ﻿// See https://aka.ms/new-console-template for more information
+using System.IO;
+using log4net.Config;
 using OpenProtocol;
 using OpenProtocol.OpenProtocolTypes;
-using log4net.Config;
-using System.IO;
-using NetworkLayer;
+using OpenProtocol.Services;
 
 // Configure log4net
 XmlConfigurator.Configure(new FileInfo("log4net.config"));
 
+
+List<Subscription> subscriptions = new List<Subscription>()
+{
+    new() { Type = SubTypes.SubscribeToResults, Rev = 4 },
+    new() { Type = SubTypes.SubsribeToJobInfo, Rev = 4 }
+};
+
 Console.WriteLine("Connecting to server.");
 
-List<Subscriptions> subscriptions = new List<Subscriptions>()
+OpenProtocolV2 OPClient = new OpenProtocolV2();
+OPClient.NewResultEvt += (sender) =>
 {
-    Subscriptions.LasTightening,
-    Subscriptions.JobInformation, 
+    Console.WriteLine($"New tightening received: {sender.Status}");
+};
+OPClient.NewJobEvt += (sender) =>
+{
+    Console.WriteLine($"New job received: {sender.JobState}");
 };
 
-NetworkLayer.TcpClientLayer tcpClient = new NetworkLayer.TcpClientLayer();
-
-tcpClient.MessageReceived += (message) =>
+try
 {
-    Console.WriteLine($"New message received: {message}");
-};
-
-tcpClient.Connected += () =>
+    await OPClient.connectAsync("192.168.1.20", 4545, subscriptions);
+}
+catch (Exception ex)
 {
-    
-    Console.WriteLine("Connected to server.");
-};
+    Console.WriteLine($"Connection failed: {ex.Message}");
+}
 
-tcpClient.ErrorOccurred += (exception) =>
-{
-    Console.WriteLine($"Error occurred: {exception.Message}");
-};
-
-tcpClient.Disconnected += () =>
-{
-    Console.WriteLine("Disconnected from server.");
-};
-
-await tcpClient.ConnectAsync("192.168.1.20", 4545);
-
-await tcpClient.SendAsync(OpMessage.Build("0020", "0001", "003", ""));
 
 
 Console.WriteLine("Press any key to exit...");
@@ -50,5 +44,5 @@ Console.Read();
 // void OPClient_NewResultEvt(object? sender, ResultEvtArgs e)
 //{
 //    Console.WriteLine($"New message received: {e.ToString()}");
-//}
+//} 
 

@@ -1,10 +1,12 @@
 using System;
 using System.Net.Sockets;
+using System.Runtime.ConstrainedExecution;
+using System.Security.Authentication;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NetworkLayer
+namespace OpenProtocol.Services
 {
     public class TcpClientLayer : IDisposable
     {
@@ -13,18 +15,20 @@ namespace NetworkLayer
         private CancellationTokenSource _cts;
         private readonly byte _messageTerminator = 0x00; // Null byte
         private readonly Encoding _encoding = Encoding.ASCII;
+        private readonly object _ackLock = new();
+
+        private TaskCompletionSource<string> _ackTcs;
 
         public bool IsConnected => _client?.Connected ?? false;
 
         // Events for external handling
-        public event Action Connected;
-        public event Action Disconnected;
-        public event Action<string> MessageReceived;
-        public event Action<Exception> ErrorOccurred;
+        public event Action? Connected;
+        public event Action? Disconnected;
+        public event Action<string>? MessageReceived;
 
-        /// <summary>
-        /// Connects asynchronously to a TCP server.
-        /// </summary>
+        public event Action<string>? MessageSent;
+        public event Action<Exception>? ErrorOccurred;
+
         public async Task ConnectAsync(string host, int port)
         {
             try
@@ -32,8 +36,8 @@ namespace NetworkLayer
                 _client = new TcpClient();
                 await _client.ConnectAsync(host, port);
                 _stream = _client.GetStream();
-
                 _cts = new CancellationTokenSource();
+
                 _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
 
                 Connected?.Invoke();
@@ -42,12 +46,11 @@ namespace NetworkLayer
             {
                 ErrorOccurred?.Invoke(ex);
                 Disconnect();
+                throw new InvalidOperationException("Failed to connect to server.", ex);
             }
+
         }
 
-        /// <summary>
-        /// Sends a message terminated by a null character.
-        /// </summary>
         public async Task SendAsync(string message)
         {
             if (!IsConnected) throw new InvalidOperationException("Not connected to server.");
@@ -69,6 +72,38 @@ namespace NetworkLayer
             }
         }
 
+        // 🟢 NEW METHOD: Send and wait for acknowledgment
+        public async Task<bool> SendAndWaitAckAsync(string message, string expectedAck = "0005", int timeoutMs = 5000)
+        {
+            lock (_ackLock)
+            {
+                if (_ackTcs != null && !_ackTcs.Task.IsCompleted)
+                    throw new InvalidOperationException("A previous message is still waiting for acknowledgment.");
+
+                _ackTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+
+            await SendAsync(message);
+            MessageSent?.Invoke(message);
+
+            using var cts = new CancellationTokenSource();
+            var timeoutTask = Task.Delay(timeoutMs, cts.Token);
+            var completedTask = await Task.WhenAny(_ackTcs.Task, timeoutTask);
+
+            if (completedTask == _ackTcs.Task)
+            {
+                cts.Cancel();
+                string ack = await _ackTcs.Task;
+                return ack.Contains(expectedAck);
+            }
+            else
+            {
+                throw new TimeoutException($"ACK not received within {timeoutMs}ms.");
+            }
+
+        }
+
         private async Task ReceiveLoopAsync(CancellationToken token)
         {
             try
@@ -81,7 +116,6 @@ namespace NetworkLayer
                     int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, token);
                     if (bytesRead == 0)
                     {
-                        // Server disconnected
                         break;
                     }
 
@@ -93,6 +127,12 @@ namespace NetworkLayer
                             string message = _encoding.GetString(messageBuffer.ToArray());
                             messageBuffer.Clear();
                             MessageReceived?.Invoke(message);
+
+                            // 🟢 Detect ACK message and release waiter
+                            if (_ackTcs != null && !_ackTcs.Task.IsCompleted)
+                            {
+                                _ackTcs.TrySetResult(message);
+                            }
                         }
                         else
                         {
@@ -111,9 +151,6 @@ namespace NetworkLayer
             }
         }
 
-        /// <summary>
-        /// Disconnects the client cleanly.
-        /// </summary>
         public void Disconnect()
         {
             try
@@ -135,3 +172,4 @@ namespace NetworkLayer
         public void Dispose() => Disconnect();
     }
 }
+
