@@ -28,10 +28,8 @@ namespace OpenProtocol.Services
         private readonly System.Timers.Timer _keepAliveTimer = new(8000) { AutoReset = false };
         private int? _lastTightId;
         private int _disposed;
-
         public bool IsConnected => _tcpClientLayer.IsConnected;
         public ControllerInformation? ControlerInf { get; private set; }
-
         public event Action<ResultEvtArgs>? NewResultEvt;
         public event Action<EventArgs>? OnStationResult;
         public event Action<EventArgs>? OnBoltResult;
