@@ -1,181 +1,275 @@
 namespace OpenProtocol.Services
 {
+    using OpenProtocol.Exceptions;
     using OpenProtocol.OpenProtocolTypes;
-    using System;
-    using System.Collections.Generic;
-    using System.Threading.Tasks;
 
-
-    public class OpenProtocolV2
+    public class OpenProtocolV2 : IDisposable
     {
-        private readonly TcpClientLayer _tcpClientLayer;
+        private static readonly string[] CommandAckMids = { "0005", "0004" };
+        private static readonly string[] CommunicationStartAckMids = { "0002", "0004" };
+        private static readonly string[] KeepAliveAckMids = { "9999" };
 
-        private readonly System.Timers.Timer KeepAlivetimer = new System.Timers.Timer(8000);
+        private static readonly Dictionary<string, (Mids Ack, short Rev, string Data)> PushAcks = new()
+        {
+            ["0061"] = (Mids.LastTighteningResultAck, 0, ""),
+            ["0035"] = (Mids.JobInfoResultAck, 0, ""),
+            ["0217"] = (Mids.AnalogInputAck, 0, ""),
+            ["0101"] = (Mids.MultipleSpindleResultAck, 0, ""),
+            ["0106"] = (Mids.PowerMacsResultAck, 0, "1"),
+            ["0107"] = (Mids.PowerMacsResultAck, 0, "1"),
+            ["0900"] = (Mids.CommandAcknowledgment, 1, "0900"),
+            ["0901"] = (Mids.CommandAcknowledgment, 1, "0901"),
+            ["0242"] = (Mids.UserDataAck, 1, ""),
+            ["0212"] = (Mids.RelayStatusAck, 1, ""),
+            ["0015"] = (Mids.ParameterSetSelectedAck, 1, "")
+        };
+
+        private readonly TcpClientLayer _tcpClientLayer;
+        private readonly System.Timers.Timer _keepAliveTimer = new(8000) { AutoReset = false };
         private int _lastTightId;
+        private bool _disposed;
 
         public bool IsConnected => _tcpClientLayer.IsConnected;
+        public ControllerInformation? ControlerInf { get; private set; }
+
         public event Action<ResultEvtArgs>? NewResultEvt;
         public event Action<EventArgs>? OnStationResult;
         public event Action<EventArgs>? OnBoltResult;
-        public event Action<TracePlotEvtArgs>? OnTracePlotReceived; 
+        public event Action<TracePlotEvtArgs>? OnTracePlotReceived;
         public event Action<RelayStatusEvtArgs>? RelayStatusChanged;
-        public event Action<UserDataEvtArgs>? UserDataReceived; 
+        public event Action<UserDataEvtArgs>? UserDataReceived;
         public event Action<LastTraceResultEvtArgs>? OnLastCurveReveived;
         public event Action<MutipleSpindlesResultsEvtArgs>? OnMultipleSpindleResultReceive;
-        public event Action<ResultParameterSetId>? NewResultPmtId;  
+        public event Action<ResultParameterSetId>? NewResultPmtId;
         public event Action<JobEvtArgs>? NewJobEvt;
-        public ControllerInformation? ControlerInf { get; private set; }
+        public event Action<IncomingMessage>? MessageReceived;
+        public event Action<Exception>? ErrorOccurred;
+        public event Action? Disconnected;
+        public event Action? Connected;
+
         public OpenProtocolV2()
         {
             _tcpClientLayer = new TcpClientLayer();
             _tcpClientLayer.MessageReceived += OnMessageReceived;
-            _tcpClientLayer.ErrorOccurred += (ex) => Console.WriteLine($"Error: {ex.Message}");
-            _tcpClientLayer.Disconnected += () => Console.WriteLine("Disconnected from server.");
-            _tcpClientLayer.Connected += () => Console.WriteLine("Connected to server.");
-            _tcpClientLayer.MessageSent += (message) => Console.WriteLine($"Message sent: {message}");
-
-            KeepAlivetimer.Elapsed += async (sender, e) =>
+            _tcpClientLayer.ErrorOccurred += ex => ErrorOccurred?.Invoke(ex);
+            _tcpClientLayer.Disconnected += () =>
             {
-                await SendWithAckAsync(Mids.KeepAlive);
+                _keepAliveTimer.Stop();
+                Disconnected?.Invoke();
             };
+            _tcpClientLayer.Connected += () => Connected?.Invoke();
 
+            _keepAliveTimer.Elapsed += async (_, _) => await OnKeepAliveElapsedAsync();
         }
 
-        public async Task connectAsync(string host, int port, List<Subscription> Subs)
+        public async Task ConnectAsync(string host, int port, List<Subscription> subscriptions)
         {
             try
             {
-                  await _tcpClientLayer.ConnectAsync(host, port);
+                await _tcpClientLayer.ConnectAsync(host, port);
             }
             catch (Exception ex)
             {
-                throw new Exception ($"Unable to connect to {host}:{port}", ex);
-                
+                throw new ProtocolException($"Unable to connect to {host}:{port}", ex);
             }
 
+            var startAck = await SendAndWaitAsync(Mids.CommunicationStart, 3, "", CommunicationStartAckMids);
+            if (startAck.Mid == "0004")
+            {
+                throw new ProtocolException("Communication start was refused (MID 0004).");
+            }
 
-            if (await SendWithAckAsync(Mids.CommunicationStart, 3,"", Mids.CommunicationStartAck))
+            ControlerInf = new ControllerInformation(startAck.Ascii);
+
+            foreach (var sub in subscriptions)
             {
-                Console.WriteLine("Communication started successfully.");
-            }
-            else
-            {
-                throw new Exception("Failed to start communication with the server.");
-            }
-            
-            {
-                foreach (var sub in Subs)
+                var ack = await SendAndWaitAsync(sub.Type, sub.Rev, "", CommandAckMids);
+                if (ack.Mid == "0004")
                 {
-                    if (!await SendWithAckAsync(sub.Type, sub.Rev))
-                    {
-                        throw new Exception($"Subscription to {sub.Type.ToString()} failed.");
-                    }
-                }              
-                KeepAlivetimer.Start();
+                    throw new ProtocolException($"Subscription to {sub.Type} was refused (MID 0004).");
+                }
             }
-        }
-        private void OnMessageReceived(string message)
-        {
-            KeepAlivetimer.Stop();
-            Console.WriteLine($"Message received: {message}");
-            _ = AcknowledgeAsync(message);
-            HandleMessage(message.Substring(4, 4), message, new List<short>());
-            KeepAlivetimer.Start();
-        }
-        private async Task<bool> SendWithAckAsync<TEnum>(TEnum messageID, short rev=0, string data="", Mids expectedAck = Mids.CommandAcknowledgment)
-        where TEnum : Enum
-        {
-            string builtMessage = OpMessage.Build(messageID, rev, data);
-            return await _tcpClientLayer.SendAndWaitAckAsync(builtMessage,((short)expectedAck).ToString("D4"), 5000);
-        }
-        private async Task AcknowledgeAsync(string Message)
-        {
-            // Map of message IDs to their corresponding acknowledgment parameters
-            var ackMap = new Dictionary<Mids, (Mids Ack, short rev, string data)>
-            {
-                [Mids.LastTighteningResult] = (Mids.LastTighteningResultAck, 0, ""),
-                [Mids.JobInfoResult] = (Mids.JobInfoResultAck, 0, ""),
-                // ["0035"] = ("0036", "000", ""),
-                // ["0217"] = ("0218", "000", ""),
-                // ["0101"] = ("0102", "000", ""),
-                // ["0106"] = ("0108", "000", "1"),
-                // ["0107"] = ("0108", "000", "1"),
-                // ["0900"] = ("0005", "001", "0900"),,
-                // ["0242"] = ("0243", "001", ""),
-                // ["0212"] = ("0213", "001", ""),
-                // ["0015"] = ("0016", "001", "")
-            };
 
-            Mids messageId = Enum.Parse<Mids>(Message.Substring(4, 4));
-            // If message ID exists in map, send acknowledgment
-            if (ackMap.TryGetValue(messageId, out var ackParams))
-            {
-                await _tcpClientLayer.SendAsync(OpMessage.Build(ackParams.Ack, ackParams.rev, ackParams.data));
-            }
+            _keepAliveTimer.Start();
         }
-        private void HandleMessage(string messageId, string message, List<short> data)
-        {
-            // Dictionary définissant les actions par messageId
-            var messageHandlers = new Dictionary<string, Action<string, List<short>>>
-            {
 
-                ["0061"] = (msg, _) =>
+        public async Task connectAsync(string host, int port, List<Subscription> subs)
+        {
+            await ConnectAsync(host, port, subs);
+        }
+
+        public async Task DisconnectAsync()
+        {
+            _keepAliveTimer.Stop();
+            if (_tcpClientLayer.IsConnected)
+            {
+                try
                 {
-                    var currentResult = new ResultEvtArgs(msg);
+                    await _tcpClientLayer.SendAsync(OpMessage.Build(Mids.CommunicationStop, 0, ""));
+                }
+                catch
+                {
+                }
+            }
+
+            _tcpClientLayer.Disconnect();
+        }
+
+        private async Task OnKeepAliveElapsedAsync()
+        {
+            if (!_tcpClientLayer.IsConnected)
+            {
+                return;
+            }
+
+            try
+            {
+                await SendAndWaitAsync(Mids.KeepAlive, 0, "", KeepAliveAckMids, timeoutMs: 4000);
+                if (_tcpClientLayer.IsConnected)
+                {
+                    _keepAliveTimer.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(ex);
+                _tcpClientLayer.Disconnect();
+            }
+        }
+
+        private void OnMessageReceived(IncomingMessage message)
+        {
+            _keepAliveTimer.Stop();
+            try
+            {
+                MessageReceived?.Invoke(message);
+                _ = AcknowledgeAsync(message.Mid);
+                HandleMessage(message);
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(ex);
+            }
+            finally
+            {
+                if (_tcpClientLayer.IsConnected)
+                {
+                    _keepAliveTimer.Start();
+                }
+            }
+        }
+
+        private async Task<IncomingMessage> SendAndWaitAsync<TEnum>(
+            TEnum messageId,
+            short rev,
+            string data,
+            IReadOnlyCollection<string> expectedAckMids,
+            int timeoutMs = 5000)
+            where TEnum : Enum
+        {
+            var built = OpMessage.Build(messageId, rev, data);
+            return await _tcpClientLayer.SendAndWaitAckAsync(built, expectedAckMids, timeoutMs);
+        }
+
+        private async Task AcknowledgeAsync(string messageId)
+        {
+            if (!PushAcks.TryGetValue(messageId, out var ackParams))
+            {
+                return;
+            }
+
+            try
+            {
+                await _tcpClientLayer.SendAsync(OpMessage.Build(ackParams.Ack, ackParams.Rev, ackParams.Data));
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(ex);
+            }
+        }
+
+        private void HandleMessage(IncomingMessage incoming)
+        {
+            switch (incoming.Mid)
+            {
+                case "0002":
+                    ControlerInf = new ControllerInformation(incoming.Ascii);
+                    break;
+                case "0061":
+                    var currentResult = new ResultEvtArgs(incoming.Ascii);
                     if (currentResult.TightId != _lastTightId)
                     {
                         _lastTightId = currentResult.TightId;
                         NewResultEvt?.Invoke(currentResult);
                     }
-                },
-                ["0015"] = (msg, _) => NewResultPmtId?.Invoke( new ResultParameterSetId(msg)),
-                ["0035"] = (msg, _) => NewJobEvt?.Invoke( new JobEvtArgs(msg)),
-                ["0101"] = (msg, _) => OnMultipleSpindleResultReceive?.Invoke(new MutipleSpindlesResultsEvtArgs(msg)),
-                ["0106"] = HandleStationResult,
-                ["0107"] = HandleBoltResult,
-                ["0900"] = (msg, d) => OnLastCurveReveived?.Invoke(new LastTraceResultEvtArgs(msg, d)),
-                ["0901"] = (msg, _) => OnTracePlotReceived?.Invoke(new TracePlotEvtArgs(msg)),
-                ["0211"] = (msg, _) => RelayStatusChanged?.Invoke( new RelayStatusEvtArgs(msg)),
-                ["0242"] = (msg, _) => UserDataReceived?.Invoke(new UserDataEvtArgs(msg)),
-
-            };
-
-            if (messageHandlers.TryGetValue(messageId, out var handler))
-            {
-                handler(message, data);
+                    break;
+                case "0015":
+                    NewResultPmtId?.Invoke(new ResultParameterSetId(incoming.Ascii));
+                    break;
+                case "0035":
+                    NewJobEvt?.Invoke(new JobEvtArgs(incoming.Ascii));
+                    break;
+                case "0101":
+                    OnMultipleSpindleResultReceive?.Invoke(new MutipleSpindlesResultsEvtArgs(incoming.Ascii));
+                    break;
+                case "0106":
+                    HandleStationResult(incoming.Ascii);
+                    break;
+                case "0107":
+                    HandleBoltResult(incoming.Ascii);
+                    break;
+                case "0900":
+                    OnLastCurveReveived?.Invoke(new LastTraceResultEvtArgs(incoming.Ascii, incoming.CurveSamples.ToList()));
+                    break;
+                case "0901":
+                    OnTracePlotReceived?.Invoke(new TracePlotEvtArgs(incoming.Ascii));
+                    break;
+                case "0211":
+                    RelayStatusChanged?.Invoke(new RelayStatusEvtArgs(incoming.Ascii));
+                    break;
+                case "0242":
+                    UserDataReceived?.Invoke(new UserDataEvtArgs(incoming.Ascii));
+                    break;
             }
         }
-        private void HandleStationResult(string message, List<short> _)
-        {
-            if (ControlerInf?.SysSubType is null) return;
 
-            switch (ControlerInf.SysSubType)
+        private void HandleStationResult(string message)
+        {
+            switch (ControlerInf?.SysSubType ?? SystemSubTypeEnum.NotSet)
             {
-                case SystemSubTypeEnum.NotSet:
-                case SystemSubTypeEnum.Normal:
-                    OnStationResult?.Invoke( new LastTighteningResultStationDataEvtArg(message));
-                    break;
                 case SystemSubTypeEnum.Press:
-                    OnStationResult?.Invoke( new LastPressResultStationDataEvtArg(message));
+                    OnStationResult?.Invoke(new LastPressResultStationDataEvtArg(message));
+                    break;
+                default:
+                    OnStationResult?.Invoke(new LastTighteningResultStationDataEvtArg(message));
                     break;
             }
         }
-        private void HandleBoltResult(string message, List<short> _)
-        {
-            if (ControlerInf?.SysSubType is null) return;
 
-            switch (ControlerInf.SysSubType)
+        private void HandleBoltResult(string message)
+        {
+            switch (ControlerInf?.SysSubType ?? SystemSubTypeEnum.Normal)
             {
-                case SystemSubTypeEnum.Normal:
-                    OnBoltResult?.Invoke(new LastTighteningResultBoltdataEvtArgs(message));
-                    break;
                 case SystemSubTypeEnum.Press:
                     OnBoltResult?.Invoke(new LastPressResultFittingdataEvtArgs(message));
                     break;
+                default:
+                    OnBoltResult?.Invoke(new LastTighteningResultBoltdataEvtArgs(message));
+                    break;
             }
         }
 
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
 
-        
+            _disposed = true;
+            _keepAliveTimer.Stop();
+            _keepAliveTimer.Dispose();
+            _tcpClientLayer.Dispose();
+        }
     }
 }

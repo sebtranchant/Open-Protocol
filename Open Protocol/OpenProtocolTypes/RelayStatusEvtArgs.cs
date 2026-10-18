@@ -13,25 +13,23 @@
         public RelayStatusEvtArgs(string rawdata)
         {
             relayStatus = new bool[8];
-
-
-            int i = 0;
-
-            foreach (char item in rawdata)
+            var payload = rawdata.Length > 20 ? rawdata.Substring(20) : rawdata;
+            var i = 0;
+            foreach (var item in payload)
             {
-                switch (item)
+                if (i >= relayStatus.Length)
                 {
-                    case '0':
-                        relayStatus[i] = false;
-                        break;
-                    case '1':
-                        relayStatus[i] = true;
-                        break;
-                    default:
-                        break;
+                    break;
                 }
 
-                i++;
+                if (item == '0')
+                {
+                    relayStatus[i++] = false;
+                }
+                else if (item == '1')
+                {
+                    relayStatus[i++] = true;
+                }
             }
         }
     }

@@ -28,7 +28,7 @@
             multipleSpindleResult.FinalAngleTarget = int.Parse(Rawdata.Substring(116, 5));
             multipleSpindleResult.TimeStamp = Rawdata.Substring(144, 19);
             multipleSpindleResult.SyngTightId = int.Parse(Rawdata.Substring(165, 5));
-            //      multipleSpindleResult.SyncOverallStatus = bool.Parse(Rawdata.Substring(172,1));
+            multipleSpindleResult.SpindlesStatus = new List<SpindleStatus>();
 
             for (int spindlenumber = 0; spindlenumber < multipleSpindleResult.NumberOfSpindles; spindlenumber++)
             {

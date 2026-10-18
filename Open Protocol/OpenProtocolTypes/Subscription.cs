@@ -1,7 +1,6 @@
 namespace OpenProtocol.OpenProtocolTypes
 {
     public struct Subscription
-
     {
         public SubTypes Type;
         public short Rev;
@@ -9,9 +8,7 @@ namespace OpenProtocol.OpenProtocolTypes
 
     public enum SubTypes
     {
-        // Subscription messages
-        SubscribeToResults = 60,    // MID 0010
-        SubsribeToJobInfo = 34,    // MID 001
+        SubscribeToResults = 60,
+        SubsribeToJobInfo = 34
     }
-
 }

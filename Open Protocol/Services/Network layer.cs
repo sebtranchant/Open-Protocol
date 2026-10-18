@@ -1,45 +1,46 @@
-using System;
 using System.Net.Sockets;
-using System.Runtime.ConstrainedExecution;
-using System.Security.Authentication;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using OpenProtocol.OpenProtocolTypes;
 
 namespace OpenProtocol.Services
 {
     public class TcpClientLayer : IDisposable
     {
-        private TcpClient _client;
-        private NetworkStream _stream;
-        private CancellationTokenSource _cts;
-        private readonly byte _messageTerminator = 0x00; // Null byte
+        private TcpClient? _client;
+        private NetworkStream? _stream;
+        private CancellationTokenSource? _cts;
         private readonly Encoding _encoding = Encoding.ASCII;
         private readonly object _ackLock = new();
+        private readonly SemaphoreSlim _commandGate = new(1, 1);
 
-        private TaskCompletionSource<string> _ackTcs;
+        private TaskCompletionSource<IncomingMessage>? _ackTcs;
+        private HashSet<string> _expectedAckMids = new();
+        private int _disconnected;
 
-        public bool IsConnected => _client?.Connected ?? false;
+        public bool IsConnected => _client?.Connected == true && _disconnected == 0;
 
-        // Events for external handling
         public event Action? Connected;
         public event Action? Disconnected;
-        public event Action<string>? MessageReceived;
-
+        public event Action<IncomingMessage>? MessageReceived;
         public event Action<string>? MessageSent;
         public event Action<Exception>? ErrorOccurred;
 
-        public async Task ConnectAsync(string host, int port)
+        public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
         {
+            if (_client is not null || _stream is not null || _cts is not null)
+            {
+                Disconnect();
+            }
+
+            _disconnected = 0;
+
             try
             {
                 _client = new TcpClient();
-                await _client.ConnectAsync(host, port);
+                await _client.ConnectAsync(host, port, cancellationToken);
                 _stream = _client.GetStream();
                 _cts = new CancellationTokenSource();
-
                 _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
-
                 Connected?.Invoke();
             }
             catch (Exception ex)
@@ -48,98 +49,113 @@ namespace OpenProtocol.Services
                 Disconnect();
                 throw new InvalidOperationException("Failed to connect to server.", ex);
             }
-
         }
 
-        public async Task SendAsync(string message)
+        public async Task SendAsync(string message, CancellationToken cancellationToken = default)
         {
-            if (!IsConnected) throw new InvalidOperationException("Not connected to server.");
+            if (!IsConnected || _stream is null)
+            {
+                throw new InvalidOperationException("Not connected to server.");
+            }
 
             try
             {
-                byte[] data = _encoding.GetBytes(message);
-                byte[] buffer = new byte[data.Length + 1]; // +1 for null terminator
+                var data = _encoding.GetBytes(message);
+                var buffer = new byte[data.Length + 1];
                 Buffer.BlockCopy(data, 0, buffer, 0, data.Length);
-                buffer[^1] = _messageTerminator;
+                buffer[^1] = OpenProtocolFramer.MessageTerminator;
 
-                await _stream.WriteAsync(buffer, 0, buffer.Length);
-                await _stream.FlushAsync();
+                await _stream.WriteAsync(buffer, cancellationToken);
+                await _stream.FlushAsync(cancellationToken);
+                MessageSent?.Invoke(message);
             }
             catch (Exception ex)
             {
                 ErrorOccurred?.Invoke(ex);
                 Disconnect();
+                throw;
             }
         }
 
-        // 🟢 NEW METHOD: Send and wait for acknowledgment
-        public async Task<bool> SendAndWaitAckAsync(string message, string expectedAck = "0005", int timeoutMs = 5000)
+        public async Task<IncomingMessage> SendAndWaitAckAsync(
+            string message,
+            IReadOnlyCollection<string> expectedAckMids,
+            int timeoutMs = 5000,
+            CancellationToken cancellationToken = default)
         {
-            lock (_ackLock)
+            if (expectedAckMids is null || expectedAckMids.Count == 0)
             {
-                if (_ackTcs != null && !_ackTcs.Task.IsCompleted)
-                    throw new InvalidOperationException("A previous message is still waiting for acknowledgment.");
-
-                _ackTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                throw new ArgumentException("At least one expected ACK MID is required.", nameof(expectedAckMids));
             }
 
-
-            await SendAsync(message);
-            MessageSent?.Invoke(message);
-
-            using var cts = new CancellationTokenSource();
-            var timeoutTask = Task.Delay(timeoutMs, cts.Token);
-            var completedTask = await Task.WhenAny(_ackTcs.Task, timeoutTask);
-
-            if (completedTask == _ackTcs.Task)
+            await _commandGate.WaitAsync(cancellationToken);
+            try
             {
-                cts.Cancel();
-                string ack = await _ackTcs.Task;
-                return ack.Contains(expectedAck);
-            }
-            else
-            {
-                throw new TimeoutException($"ACK not received within {timeoutMs}ms.");
-            }
+                var tcs = new TaskCompletionSource<IncomingMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+                lock (_ackLock)
+                {
+                    _expectedAckMids = new HashSet<string>(expectedAckMids, StringComparer.Ordinal);
+                    _ackTcs = tcs;
+                }
 
+                try
+                {
+                    await SendAsync(message, cancellationToken);
+
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeoutCts.CancelAfter(timeoutMs);
+
+                    await using (timeoutCts.Token.Register(() => tcs.TrySetCanceled(timeoutCts.Token)))
+                    {
+                        return await tcs.Task;
+                    }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"ACK not received within {timeoutMs}ms. Expected MID(s): {string.Join(",", expectedAckMids)}.");
+                }
+                finally
+                {
+                    lock (_ackLock)
+                    {
+                        if (ReferenceEquals(_ackTcs, tcs))
+                        {
+                            _ackTcs = null;
+                            _expectedAckMids.Clear();
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _commandGate.Release();
+            }
         }
 
         private async Task ReceiveLoopAsync(CancellationToken token)
         {
             try
             {
-                byte[] buffer = new byte[1024];
-                var messageBuffer = new List<byte>();
+                var buffer = new byte[4096];
+                var messageBuffer = new List<byte>(4096);
 
-                while (!token.IsCancellationRequested)
+                while (!token.IsCancellationRequested && _stream is not null)
                 {
-                    int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, token);
+                    var bytesRead = await _stream.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
                     if (bytesRead == 0)
                     {
                         break;
                     }
 
-                    for (int i = 0; i < bytesRead; i++)
+                    messageBuffer.AddRange(buffer.AsSpan(0, bytesRead).ToArray());
+                    while (OpenProtocolFramer.TryExtract(messageBuffer, out var incoming) && incoming is not null)
                     {
-                        byte b = buffer[i];
-                        if (b == _messageTerminator)
-                        {
-                            string message = _encoding.GetString(messageBuffer.ToArray());
-                            messageBuffer.Clear();
-                            MessageReceived?.Invoke(message);
-
-                            // 🟢 Detect ACK message and release waiter
-                            if (_ackTcs != null && !_ackTcs.Task.IsCompleted)
-                            {
-                                _ackTcs.TrySetResult(message);
-                            }
-                        }
-                        else
-                        {
-                            messageBuffer.Add(b);
-                        }
+                        Dispatch(incoming);
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
             }
             catch (Exception ex)
             {
@@ -151,17 +167,46 @@ namespace OpenProtocol.Services
             }
         }
 
+        private void Dispatch(IncomingMessage incoming)
+        {
+            MessageReceived?.Invoke(incoming);
+
+            lock (_ackLock)
+            {
+                if (_ackTcs is not null
+                    && !_ackTcs.Task.IsCompleted
+                    && _expectedAckMids.Contains(incoming.Mid))
+                {
+                    _ackTcs.TrySetResult(incoming);
+                }
+            }
+        }
+
         public void Disconnect()
         {
+            if (Interlocked.Exchange(ref _disconnected, 1) == 1)
+            {
+                return;
+            }
+
             try
             {
                 _cts?.Cancel();
                 _stream?.Close();
                 _client?.Close();
             }
-            catch { }
+            catch
+            {
+            }
             finally
             {
+                lock (_ackLock)
+                {
+                    _ackTcs?.TrySetCanceled();
+                    _ackTcs = null;
+                    _expectedAckMids.Clear();
+                }
+
                 _cts = null;
                 _stream = null;
                 _client = null;
@@ -169,7 +214,10 @@ namespace OpenProtocol.Services
             }
         }
 
-        public void Dispose() => Disconnect();
+        public void Dispose()
+        {
+            Disconnect();
+            _commandGate.Dispose();
+        }
     }
 }
-

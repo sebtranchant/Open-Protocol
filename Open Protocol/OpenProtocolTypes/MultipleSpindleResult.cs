@@ -18,6 +18,6 @@
         public string TimeStamp;
         public int SyngTightId;
         public bool SyncOverallStatus;
-        public List<SpindleStatus> SpindlesStatus;
+        public List<SpindleStatus> SpindlesStatus = new();
     }
 }

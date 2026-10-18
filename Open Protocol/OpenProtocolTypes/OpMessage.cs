@@ -1,19 +1,33 @@
+using System.Globalization;
 
 namespace OpenProtocol.OpenProtocolTypes
 {
+    public static class OpMessage
+    {
+        public const int HeaderSize = 20;
 
-public static class OpMessage
-{
-        private const string Nul = "\0";
-    
-    public static string Build<TEnum>(TEnum messageId, short revision, string data)
-        where TEnum : Enum
-
+        public static string Build<TEnum>(TEnum messageId, short revision, string data)
+            where TEnum : Enum
         {
-            short totalLength = (short)(data.Length + 20); // 20 bytes for header and terminator
-        
-            return $"{totalLength:D4}{Convert.ToInt16(messageId).ToString("D4")}{revision.ToString("D3")}         {data}";
+            return Build(Convert.ToInt32(messageId, CultureInfo.InvariantCulture), revision, data);
         }
- 
-}
+
+        public static string Build(int messageId, short revision, string data)
+        {
+            data ??= string.Empty;
+            var totalLength = HeaderSize + data.Length;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:D4}{1:D4}{2:D3}         {3}",
+                totalLength,
+                messageId,
+                revision,
+                data);
+        }
+
+        public static string GetMid(string ascii)
+        {
+            return ascii.Length >= 8 ? ascii.Substring(4, 4) : string.Empty;
+        }
+    }
 }
