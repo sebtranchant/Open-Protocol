@@ -30,7 +30,20 @@ namespace OpenProtocol.Tests
             var raw = Stamp(364, 345, new string('Z', 19));
 
             Assert.Null(new ResultEvtArgs(raw).Date);
-            Assert.Null(new ResultEvtArgs("0061").Date);
+            Assert.Throws<FormatException>(() => new ResultEvtArgs("0061"));
+        }
+
+        [Fact]
+        public void ResultTorqueIsScaledAndMissingTailIsEmpty()
+        {
+            var raw = Stamp(320, 183, "001250");
+
+            var parsed = new ResultEvtArgs(raw);
+
+            Assert.Equal(12.5f, parsed.Couple);
+            Assert.Equal(0, parsed.TightId);
+            Assert.Null(parsed.Date);
+            Assert.Equal(string.Empty, parsed.PsetName);
         }
 
         [Fact]
@@ -63,6 +76,38 @@ namespace OpenProtocol.Tests
         }
 
         [Fact]
+        public void JobInfoRevision1UsesATwoDigitJobId()
+        {
+            var message = JobInfo(1, "0107021030040008050003");
+
+            var parsed = new JobEvtArgs(message);
+
+            Assert.Equal(7, parsed.JobId);
+            Assert.Equal(JobStatus.OK, parsed.JobState);
+            Assert.Equal(8, parsed.JobBatch);
+            Assert.Equal(3, parsed.JobCount);
+        }
+
+        [Fact]
+        public void JobInfoRevision4UsesAFourDigitJobId()
+        {
+            var message = JobInfo(4, "010015023031040020050006");
+
+            var parsed = new JobEvtArgs(message);
+
+            Assert.Equal(15, parsed.JobId);
+            Assert.Equal(JobStatus.ABORT, parsed.JobState);
+            Assert.Equal(20, parsed.JobBatch);
+            Assert.Equal(6, parsed.JobCount);
+        }
+
+        [Fact]
+        public void ShortJobInfoThrows()
+        {
+            Assert.Throws<FormatException>(() => new JobEvtArgs("0035"));
+        }
+
+        [Fact]
         public void SecondSpindleIsNotOverlappedByTheFirst()
         {
             var chars = Enumerable.Repeat('0', 213).ToArray();
@@ -82,6 +127,11 @@ namespace OpenProtocol.Tests
             Assert.True(result.SpindlesStatus[0].IndTightStatus);
             Assert.Equal(2f, result.SpindlesStatus[0].TorqueResult);
             Assert.Equal(2, result.SpindlesStatus[1].SpindleNumber);
+        }
+
+        private static string JobInfo(int revision, string data)
+        {
+            return $"00000035{revision:000}         {data}";
         }
 
         private static string Stamp(int length, int index, string value)
