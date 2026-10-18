@@ -7,7 +7,12 @@
         }
 
         public ProtocolException(string message)
-            : base(String.Format("Protocol Error: {0}", message))
+            : base(string.Format("Protocol Error: {0}", message))
+        {
+        }
+
+        public ProtocolException(string message, Exception inner)
+            : base(string.Format("Protocol Error: {0}", message), inner)
         {
         }
     }

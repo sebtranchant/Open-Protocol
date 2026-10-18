@@ -1,26 +1,37 @@
-﻿// See https://aka.ms/new-console-template for more information
-using OpenProtocol;
+﻿using log4net.Config;
 using OpenProtocol.OpenProtocolTypes;
-using log4net.Config;
-using System.IO;
+using OpenProtocol.Services;
 
-// Configure log4net
 XmlConfigurator.Configure(new FileInfo("log4net.config"));
 
-List<Subscriptions> subscriptions = new List<Subscriptions>()
-{
-    Subscriptions.LasTightening,
-    Subscriptions.JobInformation, 
-};
-OpenProtocol.OPClient oPClient = new OPClient("192.168.0.18",4545,subscriptions);
-oPClient.ConnectAsync().Wait();
-oPClient.NewResultEvt += OPClient_NewResultEvt;
+List<Subscription> subscriptions =
+[
+    new() { Type = SubTypes.SubscribeToResults, Rev = 4 },
+    new() { Type = SubTypes.SubsribeToJobInfo, Rev = 4 }
+];
 
-Console.WriteLine("Press any key to exit...");
-Console.ReadKey();
+Console.WriteLine("Connecting to server.");
 
-void OPClient_NewResultEvt(object? sender, ResultEvtArgs e)
+using var opClient = new OpenProtocolV2();
+opClient.Connected += () => Console.WriteLine("Connected to controller.");
+opClient.Disconnected += () => Console.WriteLine("Disconnected from controller.");
+opClient.ErrorOccurred += ex => Console.WriteLine($"Error: {ex.Message}");
+opClient.NewResultEvt += result => Console.WriteLine($"New tightening received: {result.Status}");
+opClient.NewJobEvt += job => Console.WriteLine($"New job received: {job.JobState}");
+
+try
 {
-    Console.WriteLine($"New message received: {e.ToString()}");
+    await opClient.ConnectAsync("192.168.1.20", 4545, subscriptions);
+    if (opClient.ControlerInf is not null)
+    {
+        Console.WriteLine($"Controller: {opClient.ControlerInf.ControllerName} ({opClient.ControlerInf.ControllerSerial})");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Connection failed: {ex.Message}");
 }
 
+Console.WriteLine("Press any key to exit...");
+Console.Read();
+await opClient.DisconnectAsync();

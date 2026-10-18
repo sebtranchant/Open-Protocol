@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Open Protocol", "Open Proto
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test Open protcol", "Test Open protcol\Test Open protcol.csproj", "{4334FA76-0506-4A68-8894-9380B20C2CAB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenProtocol.Tests", "OpenProtocol.Tests\OpenProtocol.Tests.csproj", "{8C1E0C2A-3B7A-4F4D-9D11-2A6F0B91C001}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4334FA76-0506-4A68-8894-9380B20C2CAB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8C1E0C2A-3B7A-4F4D-9D11-2A6F0B91C001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C1E0C2A-3B7A-4F4D-9D11-2A6F0B91C001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C1E0C2A-3B7A-4F4D-9D11-2A6F0B91C001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C1E0C2A-3B7A-4F4D-9D11-2A6F0B91C001}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

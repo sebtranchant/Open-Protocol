@@ -1,4 +1,6 @@
-﻿namespace OpenProtocol.OpenProtocolTypes
+﻿using System.Globalization;
+
+namespace OpenProtocol.OpenProtocolTypes
 {
     public class MutipleSpindlesResultsEvtArgs : EventArgs
     {
@@ -28,17 +30,18 @@
             multipleSpindleResult.FinalAngleTarget = int.Parse(Rawdata.Substring(116, 5));
             multipleSpindleResult.TimeStamp = Rawdata.Substring(144, 19);
             multipleSpindleResult.SyngTightId = int.Parse(Rawdata.Substring(165, 5));
-            //      multipleSpindleResult.SyncOverallStatus = bool.Parse(Rawdata.Substring(172,1));
+            multipleSpindleResult.SpindlesStatus = new List<SpindleStatus>();
 
+            const int SpindleStride = 19;
             for (int spindlenumber = 0; spindlenumber < multipleSpindleResult.NumberOfSpindles; spindlenumber++)
             {
-                int offset = 175 + 18 * spindlenumber;
+                int offset = 175 + SpindleStride * spindlenumber;
                 spindleStatus.SpindleNumber = int.Parse(Rawdata.Substring(offset, 2));
                 spindleStatus.ChanelID = int.Parse(Rawdata.Substring(offset + 3, 2));
-                //  spindleStatus.IndTightStatus = bool.Parse (Rawdata.Substring(offset+5,1));
-                //  spindleStatus.IndTorqueStatus = bool.Parse(Rawdata.Substring(offset+6,1));
-                spindleStatus.TorqueResult = float.Parse(Rawdata.Substring(offset + 7, 4));
-                //    spindleStatus.IndAngleStatus = bool.Parse(Rawdata.Substring(offset + 13, 1));
+                spindleStatus.IndTightStatus = Rawdata[offset + 5] == '1';
+                spindleStatus.IndTorqueStatus = Rawdata[offset + 6] == '1';
+                spindleStatus.TorqueResult = float.Parse(Rawdata.Substring(offset + 7, 4), CultureInfo.InvariantCulture) / 100f;
+                spindleStatus.IndAngleStatus = Rawdata[offset + 13] == '1';
                 spindleStatus.AngleResult = int.Parse(Rawdata.Substring(offset + 14, 5));
                 multipleSpindleResult.SpindlesStatus.Add(spindleStatus);
             }
