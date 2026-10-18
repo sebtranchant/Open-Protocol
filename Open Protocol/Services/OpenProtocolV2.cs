@@ -26,8 +26,8 @@ namespace OpenProtocol.Services
 
         private readonly TcpClientLayer _tcpClientLayer;
         private readonly System.Timers.Timer _keepAliveTimer = new(8000) { AutoReset = false };
-        private int _lastTightId;
-        private bool _disposed;
+        private int? _lastTightId;
+        private int _disposed;
 
         public bool IsConnected => _tcpClientLayer.IsConnected;
         public ControllerInformation? ControlerInf { get; private set; }
@@ -73,24 +73,39 @@ namespace OpenProtocol.Services
                 throw new ProtocolException($"Unable to connect to {host}:{port}", ex);
             }
 
-            var startAck = await SendAndWaitAsync(Mids.CommunicationStart, 3, "", CommunicationStartAckMids);
-            if (startAck.Mid == "0004")
+            try
             {
-                throw new ProtocolException("Communication start was refused (MID 0004).");
-            }
-
-            ControlerInf = new ControllerInformation(startAck.Ascii);
-
-            foreach (var sub in subscriptions)
-            {
-                var ack = await SendAndWaitAsync(sub.Type, sub.Rev, "", CommandAckMids);
-                if (ack.Mid == "0004")
+                var startAck = await SendAndWaitAsync(Mids.CommunicationStart, 3, "", CommunicationStartAckMids);
+                if (startAck.Mid == "0004")
                 {
-                    throw new ProtocolException($"Subscription to {sub.Type} was refused (MID 0004).");
+                    throw new ProtocolException("Communication start was refused (MID 0004).");
                 }
-            }
 
-            _keepAliveTimer.Start();
+                ControlerInf = new ControllerInformation(startAck.Ascii);
+
+                foreach (var sub in subscriptions)
+                {
+                    var ack = await SendAndWaitAsync(sub.Type, sub.Rev, "", CommandAckMids);
+                    if (ack.Mid == "0004")
+                    {
+                        throw new ProtocolException($"Subscription to {sub.Type} was refused (MID 0004).");
+                    }
+                }
+
+                _keepAliveTimer.Start();
+            }
+            catch
+            {
+                try
+                {
+                    await DisconnectAsync();
+                }
+                catch
+                {
+                }
+
+                throw;
+            }
         }
 
         public async Task connectAsync(string host, int port, List<Subscription> subs)
@@ -117,7 +132,7 @@ namespace OpenProtocol.Services
 
         private async Task OnKeepAliveElapsedAsync()
         {
-            if (!_tcpClientLayer.IsConnected)
+            if (Volatile.Read(ref _disposed) != 0 || !_tcpClientLayer.IsConnected)
             {
                 return;
             }
@@ -143,8 +158,16 @@ namespace OpenProtocol.Services
             try
             {
                 MessageReceived?.Invoke(message);
-                _ = AcknowledgeAsync(message.Mid);
+            }
+            catch (Exception ex)
+            {
+                ErrorOccurred?.Invoke(ex);
+            }
+
+            try
+            {
                 HandleMessage(message);
+                _ = AcknowledgeAsync(message.Mid);
             }
             catch (Exception ex)
             {
@@ -261,12 +284,11 @@ namespace OpenProtocol.Services
 
         public void Dispose()
         {
-            if (_disposed)
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
             {
                 return;
             }
 
-            _disposed = true;
             _keepAliveTimer.Stop();
             _keepAliveTimer.Dispose();
             _tcpClientLayer.Dispose();

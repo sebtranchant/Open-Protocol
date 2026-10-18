@@ -16,10 +16,9 @@ namespace Open_Protocol.Services
             _tcpClientLayer.MessageReceived += OnMessageReceived;
         }
 
-        private void OnMessageReceived(string message)
+        private void OnMessageReceived(IncomingMessage message)
         {
-            Console.WriteLine($"Message received: {message}");
-            // Additional message processing logic can be added here
+            Console.WriteLine($"Message received: {message.Mid}");
         }
 
 

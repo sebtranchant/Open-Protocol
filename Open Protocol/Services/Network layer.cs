@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Threading.Channels;
 using System.Text;
 using OpenProtocol.OpenProtocolTypes;
 
@@ -6,16 +7,21 @@ namespace OpenProtocol.Services
 {
     public class TcpClientLayer : IDisposable
     {
+        private readonly SemaphoreSlim _writeGate = new(1, 1);
+        private readonly SemaphoreSlim _commandGate = new(1, 1);
+        private readonly object _ackLock = new();
+        private readonly Encoding _encoding = Encoding.ASCII;
+
         private TcpClient? _client;
         private NetworkStream? _stream;
         private CancellationTokenSource? _cts;
-        private readonly Encoding _encoding = Encoding.ASCII;
-        private readonly object _ackLock = new();
-        private readonly SemaphoreSlim _commandGate = new(1, 1);
-
+        private Channel<IncomingMessage> _inbox = Channel.CreateUnbounded<IncomingMessage>();
+        private Task? _receiveTask;
+        private Task? _processTask;
         private TaskCompletionSource<IncomingMessage>? _ackTcs;
         private HashSet<string> _expectedAckMids = new();
-        private int _disconnected;
+        private int _disconnected = 1;
+        private int _disposed;
 
         public bool IsConnected => _client?.Connected == true && _disconnected == 0;
 
@@ -27,12 +33,12 @@ namespace OpenProtocol.Services
 
         public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
         {
-            if (_client is not null || _stream is not null || _cts is not null)
-            {
-                Disconnect();
-            }
+            Disconnect();
+            await WaitForLoopsAsync();
 
             _disconnected = 0;
+            _inbox = Channel.CreateUnbounded<IncomingMessage>();
+            var inbox = _inbox;
 
             try
             {
@@ -40,7 +46,9 @@ namespace OpenProtocol.Services
                 await _client.ConnectAsync(host, port, cancellationToken);
                 _stream = _client.GetStream();
                 _cts = new CancellationTokenSource();
-                _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
+                var token = _cts.Token;
+                _receiveTask = Task.Run(() => ReceiveLoopAsync(token));
+                _processTask = Task.Run(() => ProcessLoopAsync(inbox, token));
                 Connected?.Invoke();
             }
             catch (Exception ex)
@@ -53,13 +61,17 @@ namespace OpenProtocol.Services
 
         public async Task SendAsync(string message, CancellationToken cancellationToken = default)
         {
-            if (!IsConnected || _stream is null)
-            {
-                throw new InvalidOperationException("Not connected to server.");
-            }
-
+            var acquired = false;
             try
             {
+                await _writeGate.WaitAsync(cancellationToken);
+                acquired = true;
+
+                if (!IsConnected || _stream is null)
+                {
+                    throw new InvalidOperationException("Not connected to server.");
+                }
+
                 var data = _encoding.GetBytes(message);
                 var buffer = new byte[data.Length + 1];
                 Buffer.BlockCopy(data, 0, buffer, 0, data.Length);
@@ -69,11 +81,18 @@ namespace OpenProtocol.Services
                 await _stream.FlushAsync(cancellationToken);
                 MessageSent?.Invoke(message);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException && ex is not InvalidOperationException)
             {
                 ErrorOccurred?.Invoke(ex);
                 Disconnect();
                 throw;
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    Release(_writeGate);
+                }
             }
         }
 
@@ -128,7 +147,7 @@ namespace OpenProtocol.Services
             }
             finally
             {
-                _commandGate.Release();
+                Release(_commandGate);
             }
         }
 
@@ -167,10 +186,32 @@ namespace OpenProtocol.Services
             }
         }
 
+        private async Task ProcessLoopAsync(Channel<IncomingMessage> inbox, CancellationToken token)
+        {
+            try
+            {
+                await foreach (var incoming in inbox.Reader.ReadAllAsync(token))
+                {
+                    try
+                    {
+                        MessageReceived?.Invoke(incoming);
+                    }
+                    catch (Exception ex)
+                    {
+                        ErrorOccurred?.Invoke(ex);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (ChannelClosedException)
+            {
+            }
+        }
+
         private void Dispatch(IncomingMessage incoming)
         {
-            MessageReceived?.Invoke(incoming);
-
             lock (_ackLock)
             {
                 if (_ackTcs is not null
@@ -180,6 +221,8 @@ namespace OpenProtocol.Services
                     _ackTcs.TrySetResult(incoming);
                 }
             }
+
+            _inbox.Writer.TryWrite(incoming);
         }
 
         public void Disconnect()
@@ -202,11 +245,12 @@ namespace OpenProtocol.Services
             {
                 lock (_ackLock)
                 {
-                    _ackTcs?.TrySetCanceled();
+                    _ackTcs?.TrySetException(new IOException("Connection closed while waiting for ACK."));
                     _ackTcs = null;
                     _expectedAckMids.Clear();
                 }
 
+                _inbox.Writer.TryComplete();
                 _cts = null;
                 _stream = null;
                 _client = null;
@@ -216,8 +260,67 @@ namespace OpenProtocol.Services
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                return;
+            }
+
             Disconnect();
+            WaitForLoopsAsync().GetAwaiter().GetResult();
+
+            _writeGate.Dispose();
             _commandGate.Dispose();
+        }
+
+        private async Task WaitForLoopsAsync()
+        {
+            var pending = new List<Task>(2);
+            AddOtherLoop(_receiveTask, pending);
+            AddOtherLoop(_processTask, pending);
+
+            if (pending.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch
+            {
+            }
+        }
+
+        private static void AddOtherLoop(Task? loop, List<Task> pending)
+        {
+            if (loop is null || loop.IsCompleted)
+            {
+                return;
+            }
+
+            if (Task.CurrentId is int currentId && loop.Id == currentId)
+            {
+                return;
+            }
+
+            pending.Add(loop);
+        }
+
+        private void Release(SemaphoreSlim gate)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                gate.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 }

@@ -22,25 +22,19 @@ namespace OpenProtocol.OpenProtocolTypes
             get { return int.Parse(_myEventText.Substring(304, 9)); }
         }
 
-        public DateTime Date
+        public DateTime? Date
         {
             get
             {
-                DateTime date;
-                CultureInfo provider = CultureInfo.InvariantCulture;
-                var value = _myEventText.Substring(345, 19);
-                string format = "yyyy-MM-dd:hh:mm:ss";
                 try
                 {
-                    date = DateTime.ParseExact(value, format, provider);
+                    var value = _myEventText.Substring(345, 19);
+                    return DateTime.ParseExact(value, "yyyy-MM-dd:HH:mm:ss", CultureInfo.InvariantCulture);
                 }
                 catch (Exception)
                 {
-                    return DateTime.Now;
+                    return null;
                 }
-
-
-                return date;
             }
         }
 

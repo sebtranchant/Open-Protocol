@@ -70,6 +70,33 @@ namespace OpenProtocol.Tests
             Assert.Equal("0004", message!.Mid);
         }
 
+        [Fact]
+        public void InvalidPrefixDoesNotRecurseUntilStackOverflow()
+        {
+            var buffer = Enumerable.Repeat((byte)'X', 4096).ToList();
+            var keepAlive = Encoding.ASCII.GetBytes("00209999000         ");
+            buffer.AddRange(keepAlive);
+            buffer.Add(0);
+
+            Assert.True(OpenProtocolFramer.TryExtract(buffer, out var message));
+            Assert.Equal("9999", message!.Mid);
+            Assert.Empty(buffer);
+        }
+
+        [Fact]
+        public void OversizedCurveTailIsDroppedAndNextFrameIsRead()
+        {
+            var curve = Encoding.ASCII.GetBytes("00250900001         00002").ToList();
+            curve.Add(0);
+            var keepAlive = Encoding.ASCII.GetBytes("00209999000         ");
+            curve.AddRange(keepAlive);
+            curve.Add(0);
+
+            Assert.True(OpenProtocolFramer.TryExtract(curve, out var message, maxBinaryBytes: 0));
+            Assert.Equal("9999", message!.Mid);
+            Assert.Empty(curve);
+        }
+
         private static string OpMessageBuild(string mid)
         {
             return "0020" + mid + "000         ";

@@ -18,6 +18,13 @@
         public string TimeStamp;
         public int SyngTightId;
         public bool SyncOverallStatus;
-        public List<SpindleStatus> SpindlesStatus = new();
+        public List<SpindleStatus> SpindlesStatus;
+
+        public MultipleSpindleResult()
+        {
+            VinNumber = string.Empty;
+            TimeStamp = string.Empty;
+            SpindlesStatus = new List<SpindleStatus>();
+        }
     }
 }

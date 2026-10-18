@@ -17,4 +17,8 @@
     <ProjectReference Include="..\Open Protocol\Open Protocol.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
 </Project>

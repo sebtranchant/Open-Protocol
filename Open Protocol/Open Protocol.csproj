@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="OpenProtocol.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Folder Include="Configuration\" />
   </ItemGroup>
 

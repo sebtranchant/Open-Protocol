@@ -14,9 +14,23 @@
 
         public UserDataEvtArgs(string Message)
         {
-            string Hex = Message.Substring(20, Message.Length - 21);
-            HexaValue = Hex;
-            inputs = Enumerable.Range(0, Hex.Length / 2).Select(x => Convert.ToByte(Hex.Substring(x * 2, 2), 16))
+            Message ??= string.Empty;
+            if (Message.Length <= 20)
+            {
+                HexaValue = string.Empty;
+                inputs = Array.Empty<byte>();
+                return;
+            }
+
+            var hex = Message.Substring(20, Message.Length - 20);
+            if (hex.Length % 2 != 0)
+            {
+                throw new FormatException("User data hex payload must have an even length.");
+            }
+
+            HexaValue = hex;
+            inputs = Enumerable.Range(0, hex.Length / 2)
+                .Select(x => Convert.ToByte(hex.Substring(x * 2, 2), 16))
                 .ToArray();
         }
     }
